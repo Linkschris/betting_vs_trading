@@ -76,9 +76,7 @@ class Model:
             self.lambda_DA_RE[t] * self.variabels.p_DA[t] +
             self.model_param["lambda_H"] * self.variabels.h_H[t] +
             self.lambda_IM[t] * self.variabels.p_IM[t] -
-            self.variabels.z_su[t] * self.model_param["K_su"] * self.model_param["max_electrolyzer_capacity"] -
-            100 * self.variabels.s1[t] -
-            100 * self.variabels.s2[t]
+            self.variabels.z_su[t] * self.model_param["K_su"] * self.model_param["max_electrolyzer_capacity"]
             for t in self.periods
             ), GRB.MAXIMIZE
         )
@@ -118,7 +116,6 @@ class Model:
         self.variabels.p_IM = self.model.addMVar(shape=len(self.periods), lb=-float('inf'), vtype=GRB.CONTINUOUS, name="p_IM")
         self.variabels.p_IM_abs = self.model.addMVar(shape=len(self.periods), lb=0, vtype=GRB.CONTINUOUS, name="p_IM_abs")
         self.variabels.z_su = self.model.addMVar(shape=len(self.periods), lb=0, ub=1, vtype=GRB.BINARY, name="z_su")
-        self.variabels.z_on = self.model.addMVar(shape=len(self.periods), lb=0, ub=1, vtype=GRB.BINARY, name="z_on")
         self.variabels.z_off = self.model.addMVar(shape=len(self.periods), lb=0, ub=1, vtype=GRB.BINARY, name="z_off")
         self.variabels.z_sb = self.model.addMVar(shape=len(self.periods), lb=0, ub=1, vtype=GRB.BINARY, name="z_sb")
         self.variabels.q_DA = self.model.addMVar(shape=(24, self.n_features, self.n_price_domains), lb=-float('inf'), vtype=GRB.CONTINUOUS, name="q_DA")
@@ -127,8 +124,6 @@ class Model:
         self.variabels.CVaR = self.model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="CVaR")
         self.variabels.xi = self.model.addMVar(shape=len(self.periods), lb=0, vtype=GRB.CONTINUOUS, name="xi")
         self.variabels.u = self.model.addMVar(shape=len(self.periods), lb=0, ub=1, vtype=GRB.BINARY, name="u")
-        self.variabels.s1 = self.model.addMVar(shape=len(self.periods), lb=0, ub=self.model_param["p_min"] * self.model_param["max_electrolyzer_capacity"], vtype=GRB.CONTINUOUS, name="slack_variable_electrolyzer_consumption")
-        self.variabels.s2 = self.model.addMVar(shape=len(self.periods), lb=0, ub=self.s2_max, vtype=GRB.CONTINUOUS, name="slack_variable_electrolyzer_consumption")
         self.variabels.b = self.model.addMVar(shape=len(self.periods), lb=0, ub=1, vtype=GRB.BINARY, name="b")
 
     def _set_constraints(self):
@@ -136,11 +131,7 @@ class Model:
         self.constraints.c0 = self.model.addConstr(self.E_RE >= self.variabels.p_DA + self.variabels.p_IM + self.variabels.p_H - self.variabels.s1, name="c0")
         # (3e) power consumption of electrolyzer
         self.constraints.c1 = self.model.addConstr(self.variabels.p_H <= self.model_param["max_electrolyzer_capacity"] * self.variabels.z_on + self.variabels.z_sb*self.model_param["max_electrolyzer_capacity"]*self.model_param["p_sb"],name="c1")
-        self.constraints.c2 = self.model.addConstr(self.variabels.p_H >= self.model_param["p_min"] * self.model_param["max_electrolyzer_capacity"] * self.variabels.z_on + self.variabels.z_sb*self.model_param["p_sb"]*self.model_param["max_electrolyzer_capacity"],name="c2")
-        # Electrolyzer state
-        self.constraints.c3 = self.model.addConstr(self.variabels.z_off + self.variabels.z_on + self.variabels.z_sb == 1, name="c3")
-        # Assumption: electrolyzer is always on
-        self.constraints.c4 = self.model.addConstr(self.variabels.z_on == 1, name="c4")
+        self.constraints.c2 = self.model.addConstr(self.variabels.p_H >= self.model_param["p_min"] * self.model_param["max_electrolyzer_capacity"] + self.variabels.z_sb*self.model_param["p_sb"]*self.model_param["max_electrolyzer_capacity"],name="c2")
         # Constraints on z_su
         self.constraints.c5 = self.model.addConstr(self.variabels.z_su[0] == 0, name="c5")
         self.constraints.c6 = self.model.addConstrs((self.variabels.z_su[t] >= self.variabels.z_off[t-1] + self.variabels.z_on[t] + self.variabels.z_sb[t] - 1 for t in self.periods[1:]), name="c6")
@@ -177,51 +168,13 @@ class Model:
     def _set_model_type_constraints_2(self):
         print("Model type: hindsight")
 
-    def _set_model_conditions_constraints_1(self):
-        print("Model conditions: Selling+Buying")
-        # (4) already implemented in _initialize_variables
-        # set s1 and s2 to 0 as they are not needed here
-        self.constraints.c18 = self.model.addConstr(self.variabels.s1 == 0, name="c18")
-        self.constraints.c19 = self.model.addConstr(self.variabels.s2 == 0, name="c19")
 
-    def _set_model_conditions_constraints_2(self):
-        print("Model conditions: Only selling")
-        # (5a) lower bound on p_DA
-        self.constraints.c20 = self.model.addConstr(self.variabels.p_DA >= 0, name="c20")
-        # (5b) lower bound on p_IM
-        self.constraints.c21 = self.model.addConstr(self.variabels.p_IM >= 0, name="c21")
-    
-    def _set_model_conditions_constraints_3(self):
-        print("Model conditions: Conditional buying")
-        # (6a) Green electricity grid requirement
-        self.constraints.c22 = self.model.addConstr(self.variabels.b >= (self.lambda_green - self.lambda_DA_RE) / self.M, name="c22")
-        self.constraints.c23 = self.model.addConstr(self.variabels.b <= (self.lambda_green - self.lambda_DA_RE + self.M - self.eps) / self.M, name="c23")
-        # (6b)
-        self.constraints.c24 = self.model.addConstr(self.variabels.p_IM >= (-self.model_param["max_wind_capacity"] - self.model_param["max_electrolyzer_capacity"]) * self.variabels.b, name="c24")
-        # (6c)
-        self.constraints.c25 = self.model.addConstr(self.variabels.p_DA >= -self.model_param["max_electrolyzer_capacity"] * self.variabels.b, name="c25")
-
-    def _set_model_risk_constraints_0(self):
-        print("No risk model implemented!")
-        # Make sure p_IM_abs is equal to p_IM or -p_IM and not greater
-        self.constraints.c26 = self.model.addConstrs((self.variabels.p_IM_abs[t] == self.variabels.u[t] * self.variabels.p_IM[t] - (1 - self.variabels.u[t]) * self.variabels.p_IM[t] for t in self.periods), name="c26")
-
-    def _set_model_risk_constraints_1(self):
-        print("Risk: Mean imbalance")
-        # (8) Expected value of absolute imbalance
-        self.constraints.c27 = self.model.addConstrs((gp.quicksum(self.variabels.p_IM_abs[t] for t in range(int(24*d), int(24*(d+1)))) <= self.model_param["p_IM_abs_mean"]*24 for d in self.days), name="c27")
-    
     def _set_model_risk_constraints_2(self):
         print("Risk: CVaR")
         # (9) CVaR constraint
         self.constraints.c28 = self.model.addConstr(self.variabels.CVaR == self.variabels.VaR + (1/(len(self.periods)*(1-self.model_param["alpha"])))*gp.quicksum(self.variabels.xi[t] for t in self.periods), name="c28")
         self.constraints.c29 = self.model.addConstrs((self.variabels.xi[t] >= self.variabels.p_IM_abs[t] - self.variabels.VaR for t in self.periods), name="c29")
         self.constraints.c30 = self.model.addConstr(self.variabels.CVaR <= self.model_param["CVaR_95"], name="c30")
-    
-    def _set_risk_constraints_3(self):
-        print("Risk: Maximum imbalance")
-        # (10) Maximum imbalance constraint
-        self.constraints.c31 = self.model.addConstr(self.variabels.p_IM_abs <= self.model_param["p_IM_abs_max"], name="c31")
 
     def _solve_model(self):
         self.model.optimize()
@@ -271,8 +224,6 @@ class Model:
             self.results.CVaR = self.variabels.CVaR.x
             self.results.VaR = self.variabels.VaR.x
             self.results.u = self.variabels.u.x
-            self.results.s1 = self.variabels.s1.x
-            self.results.s2 = self.variabels.s2.x
             self.results.b = self.variabels.b.x
 
             # Check results

@@ -24,7 +24,7 @@ def main():
                   "save_results": True
                   }
     
-    model_param = {"model_type": 2,    # 1: "policies", 2: "hindsight"
+    model_param = {"model_type": 1,    # 1: "policies", 2: "hindsight"
                    "model_conditions": 1,    # 1: selling+buying, 2: only selling, 3: conditional buying
                    "model_risk": 0,    # 0: no risk constraints, 1: mean imbalance, 2: CVaR, 3: max imbalance
                    "max_wind_capacity": 10,    # MW
